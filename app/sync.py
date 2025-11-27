@@ -30,10 +30,10 @@ def upsert_videos(records):
     updated = 0
     with SessionLocal() as db:
         for r in records:
-            video = db.get(Video, r["id"])
+            video = db.execute(select(Video).where(Video.path == r["path"])).scalar_one_or_none()
             if video:
                 changed = False
-                for field in ["url", "title", "cover", "duration", "orientation"]:
+                for field in ["source_url", "title", "cover", "duration", "orientation"]:
                     new_val = r.get(field)
                     if getattr(video, field) != new_val:
                         setattr(video, field, new_val)
@@ -54,8 +54,8 @@ def upsert_videos(records):
                     except Exception:
                         created_at = None
                 video = Video(
-                    id=r["id"],
-                    url=r["url"],
+                    path=r["path"],
+                    source_url=r["source_url"],
                     title=r.get("title"),
                     cover=r.get("cover"),
                     duration=r.get("duration"),

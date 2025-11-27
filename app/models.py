@@ -22,8 +22,9 @@ class ReactionType(str, enum.Enum):
 class Video(Base):
     __tablename__ = "videos"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    url: Mapped[str] = mapped_column(String, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    path: Mapped[str] = mapped_column(String, unique=True, nullable=False)  # original path/filename from OpenList
+    source_url: Mapped[str] = mapped_column(String, nullable=False)  # direct OpenList URL
     cover: Mapped[str | None] = mapped_column(String, nullable=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -45,7 +46,7 @@ class Reaction(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    video_id: Mapped[int] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     type: Mapped[ReactionType] = mapped_column(Enum(ReactionType), nullable=False)
     source: Mapped[str | None] = mapped_column(String, nullable=True)
     client_timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -59,7 +60,7 @@ class Impression(Base):
     __tablename__ = "impressions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    video_id: Mapped[int] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     watched_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

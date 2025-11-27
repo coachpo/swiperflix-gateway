@@ -35,11 +35,6 @@ Base path: `/api/v1`
 curl "http://localhost:8000/api/v1/playlist?limit=5"
 ```
 
-### Stream proxy
-```bash
-curl -L "http://localhost:8000/api/v1/videos/<video_id>/stream" -o out.mp4
-```
-
 ### Like / Dislike
 ```bash
 curl -X POST http://localhost:8000/api/v1/videos/vid1/like \

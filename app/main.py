@@ -5,10 +5,7 @@ import json
 from datetime import datetime
 from typing import Annotated, Optional
 
-import httpx
 from fastapi import Depends, FastAPI, Path, Query, status
-from fastapi.responses import StreamingResponse
-from starlette.background import BackgroundTask
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -43,7 +40,12 @@ def get_db() -> Session:
 @app.on_event("startup")
 def on_startup():
     init_db()
-    seed_data()
+    # Attempt initial sync; ignore failures so app still boots
+    try:
+        with SessionLocal() as db:
+            ensure_videos_loaded(db)
+    except Exception:
+        pass
 
 
 # Helpers
@@ -65,8 +67,8 @@ def decode_cursor(cursor: str) -> tuple[datetime, str]:
 
 @app.get("/api/v1/playlist", response_model=PlaylistResponse, responses={400: {"model": ErrorResponse}})
 def get_playlist(
-    cursor: Annotated[Optional[str], Query(default=None)],
-    limit: Annotated[int, Query(gt=0, le=50, default=20)] = 20,
+    cursor: Optional[str] = Query(default=None),
+    limit: int = Query(gt=0, le=50, default=20),
     db: Session = Depends(get_db),
 ):
     ensure_videos_loaded(db)
@@ -88,13 +90,25 @@ def get_playlist(
     next_cursor = None
     if has_more:
         last = items[-1]
-        next_cursor = encode_cursor(last.created_at, last.id)
+        next_cursor = encode_cursor(last.created_at, str(last.id))
 
-    return PlaylistResponse(items=[VideoItem.model_validate(v) for v in items], nextCursor=next_cursor)
+    mapped_items = []
+    for v in items:
+        mapped_items.append(
+            VideoItem(
+                id=v.path,
+                url=v.source_url,
+                cover=v.cover,
+                title=v.title,
+                duration=v.duration,
+                orientation=v.orientation,
+            )
+        )
+    return PlaylistResponse(items=mapped_items, nextCursor=next_cursor)
 
 
 def ensure_video(db: Session, video_id: str) -> Video:
-    video = db.get(Video, video_id)
+    video = db.execute(select(Video).where(Video.path == video_id)).scalar_one_or_none()
     if not video:
         error_response("VIDEO_NOT_FOUND", f"Video id {video_id} not found", status.HTTP_404_NOT_FOUND)
     return video
@@ -124,50 +138,6 @@ def dislike_video(
     db: Session = Depends(get_db),
 ):
     return handle_reaction(db, video_id, ReactionType.dislike, reaction)
-
-
-@app.get(
-    "/api/v1/videos/{video_id}/stream",
-    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
-)
-async def stream_video(video_id: Annotated[str, Path()], db: Session = Depends(get_db)):
-    video = ensure_video(db, video_id)
-    settings = get_settings()
-    headers = {}
-    if settings.token:
-        headers["Authorization"] = f"Bearer {settings.token}"
-    auth = None
-    if settings.username and settings.user_password:
-        auth = (settings.username, settings.user_password)
-
-    client = httpx.AsyncClient(follow_redirects=True, timeout=None, auth=auth)
-    try:
-        upstream = await client.stream("GET", video.url, headers=headers)
-    except httpx.HTTPError as exc:
-        await client.aclose()
-        error_response("UPSTREAM_ERROR", f"Failed to fetch upstream: {exc}", status.HTTP_502_BAD_GATEWAY)
-
-    if upstream.status_code >= 400:
-        await upstream.aclose()
-        await client.aclose()
-        error_response("UPSTREAM_ERROR", f"Upstream returned {upstream.status_code}", status.HTTP_502_BAD_GATEWAY)
-
-    content_type = upstream.headers.get("content-type")
-    content_length = upstream.headers.get("content-length")
-
-    async def stream_iter():
-        try:
-            async for chunk in upstream.aiter_raw():
-                yield chunk
-        finally:
-            await upstream.aclose()
-            await client.aclose()
-
-    return StreamingResponse(
-        stream_iter(),
-        media_type=content_type,
-        headers={"Content-Length": content_length} if content_length else None,
-    )
 
 
 def handle_reaction(db: Session, video_id: str, rtype: ReactionType, reaction: ReactionRequest):
@@ -217,72 +187,7 @@ def track_impression(
     return OkResponse()
 
 
-# Seed data
-
-def seed_data():
-    settings = get_settings()
-    client = OpenListClient(settings)
-
-    with SessionLocal() as db:
-        if db.query(Video).count() > 0:
-            return
-
-        try:
-            records = fetch_from_openlist(client)
-        except Exception:
-            records = []
-
-        videos: list[Video] = []
-        for r in records:
-            created_at = None
-            if r.get("created_at"):
-                try:
-                    created_at = datetime.fromisoformat(str(r["created_at"]))
-                except Exception:
-                    created_at = None
-            videos.append(
-                Video(
-                    id=r["id"],
-                    url=r["url"],
-                    cover=r.get("cover"),
-                    title=r.get("title"),
-                    duration=r.get("duration"),
-                    orientation=r.get("orientation"),
-                    created_at=created_at or datetime.utcnow(),
-                )
-            )
-
-        if not videos:
-            videos = [
-                Video(
-                    id="vid1",
-                    url="https://cdn.example.com/videos/vid1.mp4",
-                    cover="https://cdn.example.com/covers/vid1.jpg",
-                    title="Sample Video 1",
-                    duration=120,
-                    orientation=models.Orientation.portrait,
-                ),
-                Video(
-                    id="vid2",
-                    url="https://cdn.example.com/videos/vid2.mp4",
-                    cover="https://cdn.example.com/covers/vid2.jpg",
-                    title="Sample Video 2",
-                    duration=95,
-                    orientation=models.Orientation.landscape,
-                ),
-                Video(
-                    id="vid3",
-                    url="https://cdn.example.com/videos/vid3.mp4",
-                    cover="https://cdn.example.com/covers/vid3.jpg",
-                    title="Sample Video 3",
-                    duration=180,
-                    orientation=models.Orientation.landscape,
-                ),
-            ]
-
-        db.add_all(videos)
-        db.commit()
-
+ 
 
 def fetch_from_openlist(client: OpenListClient) -> list[dict]:
     entries = client.fetch_files()
@@ -308,8 +213,8 @@ def ensure_videos_loaded(db: Session) -> None:
                 created_at = None
         videos.append(
             Video(
-                id=r["id"],
-                url=r["url"],
+                path=r["path"],
+                source_url=r["source_url"],
                 cover=r.get("cover"),
                 title=r.get("title"),
                 duration=r.get("duration"),

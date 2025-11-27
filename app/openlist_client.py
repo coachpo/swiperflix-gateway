@@ -104,11 +104,11 @@ class OpenListClient:
             return None
         base_path = self.settings.dir_path.rstrip("/")
         path = f"{base_path}/{name}" if base_path else f"/{name}"
-        url = self.settings.build_file_url(path)
+        source_url = self.settings.build_file_url(path)
         created_at = modified
         return {
-            "id": path.lstrip("/"),
-            "url": url,
+            "path": path.lstrip("/"),
+            "source_url": source_url,
             "title": name,
             "cover": None,
             "duration": None,
