@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from datetime import datetime
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Path, Query, status
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -25,10 +28,29 @@ from app.schemas import (
 )
 from app.utils import error_response
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Swiperflix Gateway", version="1.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Auth
+bearer_scheme = HTTPBearer(auto_error=False)
+AUTH_TOKEN = "this-is-the-key-for-local-dev"
 
 
 # Dependency
+def require_bearer(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    if not credentials or credentials.scheme.lower() != "bearer":
+        error_response("UNAUTHORIZED", "Missing bearer token", status.HTTP_401_UNAUTHORIZED)
+    if credentials.credentials != AUTH_TOKEN:
+        error_response("UNAUTHORIZED", "Invalid token", status.HTTP_401_UNAUTHORIZED)
+    return True
 
 def get_db() -> Session:
     db = SessionLocal()
@@ -45,8 +67,8 @@ def on_startup():
     try:
         with SessionLocal() as db:
             ensure_videos_loaded(db)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Startup sync failed: %s", exc, exc_info=True)
 
 
 # Helpers
@@ -66,7 +88,12 @@ def decode_cursor(cursor: str) -> tuple[datetime, str]:
         raise exc  # unreachable
 
 
-@app.get("/api/v1/playlist", response_model=PlaylistResponse, responses={400: {"model": ErrorResponse}})
+@app.get(
+    "/api/v1/playlist",
+    response_model=PlaylistResponse,
+    responses={400: {"model": ErrorResponse}},
+    dependencies=[Depends(require_bearer)],
+)
 def get_playlist(
     cursor: Optional[str] = Query(default=None),
     limit: int = Query(gt=0, le=50, default=20),
@@ -119,6 +146,7 @@ def ensure_video(db: Session, video_id: str) -> Video:
     "/api/v1/videos/{video_id}/stream",
     status_code=status.HTTP_302_FOUND,
     responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    dependencies=[Depends(require_bearer)],
 )
 def stream_video(
     video_id: Annotated[str, Path()],
@@ -138,6 +166,7 @@ def stream_video(
     "/api/v1/videos/{video_id}/like",
     response_model=OkResponse,
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    dependencies=[Depends(require_bearer)],
 )
 def like_video(
     reaction: ReactionRequest,
@@ -151,6 +180,7 @@ def like_video(
     "/api/v1/videos/{video_id}/dislike",
     response_model=OkResponse,
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    dependencies=[Depends(require_bearer)],
 )
 def dislike_video(
     reaction: ReactionRequest,
@@ -172,7 +202,7 @@ def handle_reaction(db: Session, video_id: str, rtype: ReactionType, reaction: R
 
     existing = db.execute(query).scalars().first()
     if existing:
-        return OkResponse()
+        error_response("ALREADY_REACTED", "Reaction already recorded", status.HTTP_409_CONFLICT)
 
     record = models.Reaction(
         video_id=video.id,
@@ -190,6 +220,7 @@ def handle_reaction(db: Session, video_id: str, rtype: ReactionType, reaction: R
     "/api/v1/videos/{video_id}/impression",
     response_model=OkResponse,
     responses={404: {"model": ErrorResponse}},
+    dependencies=[Depends(require_bearer)],
 )
 def track_impression(
     body: ImpressionRequest,
@@ -209,8 +240,8 @@ def track_impression(
 
  
 
-def fetch_from_openlist(client: OpenListClient) -> list[dict]:
-    entries = client.fetch_files()
+def fetch_from_openlist(client: OpenListClient, all_pages: bool = False) -> list[dict]:
+    entries = client.fetch_files(all_pages=all_pages)
     return client.build_video_records(entries)
 
 
@@ -220,8 +251,9 @@ def ensure_videos_loaded(db: Session) -> None:
     settings = get_settings()
     client = get_openlist_client()
     try:
-        records = fetch_from_openlist(client)
-    except Exception:
+        records = fetch_from_openlist(client, all_pages=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to fetch from OpenList dir=%s: %s", settings.dir_path, exc, exc_info=True)
         records = []
     videos = []
     for r in records:

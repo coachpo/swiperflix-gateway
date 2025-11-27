@@ -78,10 +78,22 @@ class OpenListClient:
             client = self._new_client()
             try:
                 resp = client.post("/api/fs/list", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
             except httpx.TimeoutException as exc:
                 raise RuntimeError("OpenList /api/fs/list timed out") from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"OpenList /api/fs/list request failed: {exc}") from exc
+
+            if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+                if self.settings.token:
+                    logger.warning("OpenList token rejected; token=%s", self.settings.token)
+                self.authenticate()
+                return fetch_page(page, auth_retry=False)
+            if resp.status_code >= 400:
+                raise RuntimeError(f"OpenList /api/fs/list HTTP {resp.status_code}: {resp.text}")
+            try:
+                data = resp.json()
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"OpenList /api/fs/list response not JSON: {resp.text}") from exc
             if data.get("code") != 200:
                 if data.get("code") == 401 and auth_retry and (self.settings.username and self.settings.user_password):
                     if self.settings.token:
@@ -127,10 +139,14 @@ class OpenListClient:
         if isinstance(entry, str):
             name = entry
             modified = None
+            is_dir = False
         else:
             name = entry.get("name")
             modified = entry.get("modified")
+            is_dir = bool(entry.get("is_dir")) or entry.get("type") == 1
         if not name:
+            return None
+        if is_dir:
             return None
         base_path = self.settings.dir_path.rstrip("/")
         path = f"{base_path}/{name}" if base_path else f"/{name}"
@@ -156,68 +172,9 @@ class OpenListClient:
 
     def get_download_url(self, path: str) -> str:
         """
-        Resolve a file's direct download URL using OpenList's file link endpoint.
-        Example: /@file/link/path/path1/file1.mp4 for file /path1/file1.mp4
+        Resolve a file's direct download URL using OpenList's fs/get API.
         """
         norm_path = path.lstrip("/")
-        endpoint = f"/@file/link/path/{norm_path}"
-        params = {}
-        if self.settings.password:
-            params["password"] = self.settings.password
-
-        def call_link(auth_retry: bool = True):
-            client = self._new_client()
-            resp = client.get(endpoint, params=params, follow_redirects=False)
-            if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
-                self.authenticate()
-                return call_link(auth_retry=False)
-            return resp
-
-        resp = call_link()
-
-        if resp.is_redirect:
-            location = resp.headers.get("Location")
-            if location:
-                return location
-
-        # Some deployments return a JSON envelope; others may stream or render HTML.
-        if resp.headers.get("content-type", "").startswith("text/html"):
-            # Fallback to API-based resolution below.
-            return self._get_download_url_via_api(norm_path)
-
-        try:
-            data = resp.json()
-        except Exception:
-            # Fallback to API-based resolution; if that fails, surface this response.
-            return self._get_download_url_via_api(norm_path)
-
-        if isinstance(data, dict) and data.get("code") == 401 and (self.settings.username and self.settings.user_password):
-            # Token invalid; re-auth and retry once.
-            self.authenticate()
-            resp = call_link(auth_retry=False)
-            if resp.is_redirect:
-                location = resp.headers.get("Location")
-                if location:
-                    return location
-            try:
-                data = resp.json()
-            except Exception:
-                return self._get_download_url_via_api(norm_path)
-
-        # OpenList often returns {code:int, data:<url|string|dict>}
-        if isinstance(data, dict):
-            inner = data.get("data") if "data" in data else None
-            if isinstance(inner, str) and inner:
-                return inner
-            if isinstance(inner, dict):
-                for key in ("raw_url", "url", "download_url", "link", "proxy_url"):
-                    val = inner.get(key)
-                    if isinstance(val, str) and val:
-                        return val
-        if isinstance(data, str) and data:
-            return data
-
-        # Try API fallback before giving up.
         return self._get_download_url_via_api(norm_path)
 
     def _get_download_url_via_api(self, norm_path: str) -> str:
@@ -232,6 +189,8 @@ class OpenListClient:
             if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
                 self.authenticate()
                 return call_get(auth_retry=False)
+            if resp.status_code >= 400:
+                raise RuntimeError(f"OpenList /api/fs/get HTTP {resp.status_code}: {resp.text}")
             return resp
 
         resp = call_get()
@@ -248,6 +207,9 @@ class OpenListClient:
 
         if not isinstance(data, dict):
             raise RuntimeError(f"Unexpected OpenList /api/fs/get response: {data}")
+
+        if "code" in data and data.get("code") not in (0, 200):
+            raise RuntimeError(f"OpenList /api/fs/get error: {data}")
 
         inner = data.get("data") if "data" in data else None
         if isinstance(inner, dict):
