@@ -64,43 +64,60 @@ class OpenListClient:
                 self._client.auth = None
             return token
 
-    def fetch_files(self) -> list[dict[str, Any]]:
-        """Calls POST /api/fs/list to list entries under configured dir_path."""
-        payload = {
+    def fetch_files(self, all_pages: bool = False) -> list[dict[str, Any]]:
+        """Calls POST /api/fs/list to list entries. If all_pages is True, paginates until exhausted."""
+        payload_base = {
             "path": self.settings.dir_path,
             "password": self.settings.password or "",
             "refresh": False,
-            "page": 1,
             "per_page": 50,
         }
-        client = self._new_client()
-        try:
-            resp = client.post("/api/fs/list", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-        except httpx.TimeoutException as exc:
-            raise RuntimeError("OpenList /api/fs/list timed out") from exc
-        if data.get("code") != 200:
-            # token invalid; try to re-auth with username/password if available
-            if data.get("code") == 401 and (self.settings.username and self.settings.user_password):
-                if self.settings.token:
-                    logger.warning("OpenList token rejected; token=%s", self.settings.token)
-                self.authenticate()
-                client = self._new_client()
+
+        def fetch_page(page: int, auth_retry: bool = True) -> dict[str, Any]:
+            payload = dict(payload_base, page=page)
+            client = self._new_client()
+            try:
                 resp = client.post("/api/fs/list", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                if data.get("code") != 200:
-                    raise RuntimeError(f"OpenList error after re-auth: {data}")
-            else:
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("OpenList /api/fs/list timed out") from exc
+            if data.get("code") != 200:
+                if data.get("code") == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+                    if self.settings.token:
+                        logger.warning("OpenList token rejected; token=%s", self.settings.token)
+                    self.authenticate()
+                    return fetch_page(page, auth_retry=False)
                 raise RuntimeError(f"OpenList error: {data}")
-        payload_data = data.get("data") or []
-        # fs/list can return {content: [...], total: n} or a bare array
-        if isinstance(payload_data, dict) and "content" in payload_data:
-            entries = payload_data.get("content") or []
-        else:
-            entries = payload_data
-        return entries
+            return data
+
+        results: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            data = fetch_page(page)
+            payload_data = data.get("data") or []
+
+            total = None
+            if isinstance(payload_data, dict):
+                entries = payload_data.get("content") or []
+                total = payload_data.get("total")
+            else:
+                entries = payload_data
+
+            results.extend(entries or [])
+
+            if not all_pages:
+                return entries
+
+            per_page = payload_base["per_page"]
+            if total is not None:
+                if len(results) >= total:
+                    break
+            if not entries or len(entries) < per_page:
+                break
+            page += 1
+
+        return results
 
     def normalize_entry(self, entry: dict[str, Any] | str) -> dict[str, Any] | None:
         """

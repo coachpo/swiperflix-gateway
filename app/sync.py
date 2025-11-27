@@ -79,7 +79,7 @@ def main():
     # ensure singleton reflects CLI overrides
     client.settings.dir_path = settings.dir_path
     logger.info("Fetching entries from OpenList dir=%s", settings.dir_path)
-    entries = client.fetch_files()
+    entries = client.fetch_files(all_pages=True)
     records = client.build_video_records(entries)
     logger.info("Fetched %d entries", len(records))
     created, updated = upsert_videos(records)
