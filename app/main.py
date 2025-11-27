@@ -146,7 +146,6 @@ def ensure_video(db: Session, video_id: str) -> Video:
     "/api/v1/videos/{video_id}/stream",
     status_code=status.HTTP_302_FOUND,
     responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
-    dependencies=[Depends(require_bearer)],
 )
 def stream_video(
     video_id: Annotated[str, Path()],
