@@ -29,6 +29,7 @@ class Video(Base):
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     orientation: Mapped[Orientation | None] = mapped_column(Enum(Orientation), nullable=True)
+    pick_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     reactions: Mapped[list[Reaction]] = relationship(

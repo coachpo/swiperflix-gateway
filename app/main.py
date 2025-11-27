@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import base64
-import json
 import logging
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Path, Query, status
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import desc, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app import models
@@ -71,23 +69,6 @@ def on_startup():
         logger.error("Startup sync failed: %s", exc, exc_info=True)
 
 
-# Helpers
-
-def encode_cursor(created_at: datetime, vid: str) -> str:
-    payload = json.dumps({"t": created_at.isoformat(), "id": vid})
-    return base64.urlsafe_b64encode(payload.encode()).decode()
-
-
-def decode_cursor(cursor: str) -> tuple[datetime, str]:
-    try:
-        decoded = base64.urlsafe_b64decode(cursor.encode()).decode()
-        obj = json.loads(decoded)
-        return datetime.fromisoformat(obj["t"]), obj["id"]
-    except Exception as exc:  # noqa: BLE001
-        error_response("BAD_CURSOR", f"Invalid cursor: {cursor}", status.HTTP_400_BAD_REQUEST)
-        raise exc  # unreachable
-
-
 @app.get(
     "/api/v1/playlist",
     response_model=PlaylistResponse,
@@ -95,30 +76,22 @@ def decode_cursor(cursor: str) -> tuple[datetime, str]:
     dependencies=[Depends(require_bearer)],
 )
 def get_playlist(
-    cursor: Optional[str] = Query(default=None),
     limit: int = Query(gt=0, le=50, default=20),
     db: Session = Depends(get_db),
 ):
     ensure_videos_loaded(db)
 
-    stmt = select(Video).order_by(desc(Video.created_at), desc(Video.id))
+    stmt = select(Video).order_by(Video.pick_count, func.random()).limit(limit)
+    items = db.execute(stmt).scalars().all()
 
-    if cursor:
-        t, vid = decode_cursor(cursor)
-        stmt = stmt.where(
-            (Video.created_at < t) | ((Video.created_at == t) & (Video.id < vid))
+    ids = [v.id for v in items]
+    if ids:
+        db.execute(
+            update(Video)
+            .where(Video.id.in_(ids))
+            .values(pick_count=Video.pick_count + 1)
         )
-
-    stmt = stmt.limit(limit + 1)
-    videos = db.execute(stmt).scalars().all()
-
-    has_more = len(videos) > limit
-    items = videos[:limit]
-
-    next_cursor = None
-    if has_more:
-        last = items[-1]
-        next_cursor = encode_cursor(last.created_at, str(last.id))
+        db.commit()
 
     mapped_items = [
         VideoItem(
@@ -131,7 +104,7 @@ def get_playlist(
         )
         for v in items
     ]
-    return PlaylistResponse(items=mapped_items, nextCursor=next_cursor)
+    return PlaylistResponse(items=mapped_items, nextCursor=None)
 
 
 def ensure_video(db: Session, video_id: str) -> Video:

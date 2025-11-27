@@ -43,3 +43,15 @@ def init_db() -> None:
     from app import models  # noqa: F401 - ensure models are imported
 
     Base.metadata.create_all(bind=engine)
+    _ensure_pick_count_column()
+
+
+def _ensure_pick_count_column() -> None:
+    """Lightweight, idempotent migration for adding pick_count to videos table."""
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info('videos')").fetchall()}
+        if "pick_count" not in cols:
+            conn.exec_driver_sql("ALTER TABLE videos ADD COLUMN pick_count INTEGER NOT NULL DEFAULT 0")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_videos_pick_count ON videos (pick_count, id)"
+        )
