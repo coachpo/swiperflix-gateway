@@ -13,7 +13,7 @@ fi
 
 echo "Swiperflix Gateway quick start"
 echo "1) Populate data (python -m app.sync)"
-echo "2) Start server (python -m uvicorn app.main:app --reload)"
+echo "2) Start server (python -m uvicorn app.main:app --reload --host 0.0.0.0)"
 echo "q) Quit"
 read -rp "Select an option: " choice
 
@@ -22,7 +22,7 @@ case "$choice" in
     python -m app.sync
     ;;
   2)
-    python -m uvicorn app.main:app --reload
+    python -m uvicorn app.main:app --reload --host 0.0.0.0
     ;;
   q|Q)
     echo "Bye"
