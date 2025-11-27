@@ -5,7 +5,7 @@ from typing import Any, List
 
 import httpx
 
-from app.config import Settings
+from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,21 +13,31 @@ logger = logging.getLogger(__name__)
 class OpenListClient:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self._client: httpx.Client | None = None
 
     def _new_client(self) -> httpx.Client:
-        headers = {}
+        headers, auth = self._build_auth()
+        if self._client and not self._client.is_closed:
+            self._client.headers.update(headers)
+            self._client.auth = auth
+            return self._client
+        self._client = httpx.Client(
+            base_url=self.settings.api_base_url,
+            headers=headers,
+            auth=auth,
+            timeout=httpx.Timeout(60.0, connect=10.0),
+        )
+        return self._client
+
+    def _build_auth(self) -> tuple[dict[str, str], httpx._types.AuthTypes | None]:
+        headers: dict[str, str] = {}
         auth = None
         if self.settings.token:
             # OpenList expects raw token without Bearer prefix
             headers["Authorization"] = self.settings.token
         if self.settings.username and self.settings.user_password and not self.settings.token:
             auth = (self.settings.username, self.settings.user_password)
-        return httpx.Client(
-            base_url=self.settings.api_base_url,
-            headers=headers,
-            auth=auth,
-            timeout=httpx.Timeout(60.0, connect=10.0),
-        )
+        return headers, auth
 
     def authenticate(self) -> str:
         if not (self.settings.username and self.settings.user_password):
@@ -49,6 +59,9 @@ class OpenListClient:
             # update settings so subsequent requests use it
             self.settings.token = token
             logger.info("OpenList login obtained token=%s", token)
+            if self._client and not self._client.is_closed:
+                self._client.headers.update({"Authorization": token})
+                self._client.auth = None
             return token
 
     def fetch_files(self) -> list[dict[str, Any]]:
@@ -226,3 +239,16 @@ class OpenListClient:
                 if isinstance(val, str) and val:
                     return val
         raise RuntimeError(f"OpenList /api/fs/get did not return download URL: {data}")
+
+
+_singleton_client: OpenListClient | None = None
+
+
+def get_openlist_client() -> OpenListClient:
+    """
+    Provide a singleton OpenListClient for reuse across handlers.
+    """
+    global _singleton_client
+    if _singleton_client is None:
+        _singleton_client = OpenListClient(get_settings())
+    return _singleton_client

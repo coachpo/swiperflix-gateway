@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.models import Video
-from app.openlist_client import OpenListClient
+from app.openlist_client import get_openlist_client
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -75,7 +75,9 @@ def main():
         settings.dir_path = args.dir_path
 
     init_db()
-    client = OpenListClient(settings)
+    client = get_openlist_client()
+    # ensure singleton reflects CLI overrides
+    client.settings.dir_path = settings.dir_path
     logger.info("Fetching entries from OpenList dir=%s", settings.dir_path)
     entries = client.fetch_files()
     records = client.build_video_records(entries)

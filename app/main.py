@@ -14,7 +14,7 @@ from app import models
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.models import ReactionType, Video
-from app.openlist_client import OpenListClient
+from app.openlist_client import OpenListClient, get_openlist_client
 from app.schemas import (
     ErrorResponse,
     ImpressionRequest,
@@ -125,7 +125,7 @@ def stream_video(
     db: Session = Depends(get_db),
 ):
     video = ensure_video(db, video_id)
-    client = OpenListClient(get_settings())
+    client = get_openlist_client()
     try:
         download_url = client.get_download_url(video.path)
     except Exception as exc:  # noqa: BLE001
@@ -218,7 +218,7 @@ def ensure_videos_loaded(db: Session) -> None:
     if db.query(Video).count() > 0:
         return
     settings = get_settings()
-    client = OpenListClient(settings)
+    client = get_openlist_client()
     try:
         records = fetch_from_openlist(client)
     except Exception:
