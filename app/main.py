@@ -92,23 +92,23 @@ def get_playlist(
         last = items[-1]
         next_cursor = encode_cursor(last.created_at, str(last.id))
 
-    mapped_items = []
-    for v in items:
-        mapped_items.append(
-            VideoItem(
-                id=v.path,
-                url=v.source_url,
-                cover=v.cover,
-                title=v.title,
-                duration=v.duration,
-                orientation=v.orientation,
-            )
+    mapped_items = [
+        VideoItem(
+            id=str(v.id),
+            url=v.source_url,
+            cover=v.cover,
+            title=v.title,
+            duration=v.duration,
+            orientation=v.orientation,
         )
+        for v in items
+    ]
     return PlaylistResponse(items=mapped_items, nextCursor=next_cursor)
 
 
 def ensure_video(db: Session, video_id: str) -> Video:
-    video = db.execute(select(Video).where(Video.path == video_id)).scalar_one_or_none()
+    # video_id is now DB PK in API surface
+    video = db.get(Video, int(video_id)) if video_id.isdigit() else None
     if not video:
         error_response("VIDEO_NOT_FOUND", f"Video id {video_id} not found", status.HTTP_404_NOT_FOUND)
     return video
