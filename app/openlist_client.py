@@ -135,18 +135,44 @@ class OpenListClient:
         if self.settings.password:
             params["password"] = self.settings.password
 
-        client = self._new_client()
-        resp = client.get(endpoint, params=params, follow_redirects=False)
+        def call_link(auth_retry: bool = True):
+            client = self._new_client()
+            resp = client.get(endpoint, params=params, follow_redirects=False)
+            if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+                self.authenticate()
+                return call_link(auth_retry=False)
+            return resp
+
+        resp = call_link()
 
         if resp.is_redirect:
             location = resp.headers.get("Location")
             if location:
                 return location
 
+        # Some deployments return a JSON envelope; others may stream or render HTML.
+        if resp.headers.get("content-type", "").startswith("text/html"):
+            # Fallback to API-based resolution below.
+            return self._get_download_url_via_api(norm_path)
+
         try:
             data = resp.json()
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"OpenList link response not JSON: {resp.text}") from exc
+        except Exception:
+            # Fallback to API-based resolution; if that fails, surface this response.
+            return self._get_download_url_via_api(norm_path)
+
+        if isinstance(data, dict) and data.get("code") == 401 and (self.settings.username and self.settings.user_password):
+            # Token invalid; re-auth and retry once.
+            self.authenticate()
+            resp = call_link(auth_retry=False)
+            if resp.is_redirect:
+                location = resp.headers.get("Location")
+                if location:
+                    return location
+            try:
+                data = resp.json()
+            except Exception:
+                return self._get_download_url_via_api(norm_path)
 
         # OpenList often returns {code:int, data:<url|string|dict>}
         if isinstance(data, dict):
@@ -154,11 +180,49 @@ class OpenListClient:
             if isinstance(inner, str) and inner:
                 return inner
             if isinstance(inner, dict):
-                for key in ("raw_url", "url", "download_url", "link"):
+                for key in ("raw_url", "url", "download_url", "link", "proxy_url"):
                     val = inner.get(key)
                     if isinstance(val, str) and val:
                         return val
         if isinstance(data, str) and data:
             return data
 
-        raise RuntimeError(f"OpenList link did not return download URL: {data}")
+        # Try API fallback before giving up.
+        return self._get_download_url_via_api(norm_path)
+
+    def _get_download_url_via_api(self, norm_path: str) -> str:
+        """
+        Fallback: use OpenList's fs/get API to resolve raw or proxy URL.
+        """
+        payload = {"path": f"/{norm_path}", "password": self.settings.password or ""}
+
+        def call_get(auth_retry: bool = True):
+            client = self._new_client()
+            resp = client.post("/api/fs/get", json=payload)
+            if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+                self.authenticate()
+                return call_get(auth_retry=False)
+            return resp
+
+        resp = call_get()
+        try:
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"OpenList /api/fs/get response not JSON: {resp.text}") from exc
+
+        # Some deployments return HTTP 200 with {code:401,...}
+        if isinstance(data, dict) and data.get("code") == 401 and (self.settings.username and self.settings.user_password):
+            self.authenticate()
+            resp = call_get(auth_retry=False)
+            data = resp.json()
+
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected OpenList /api/fs/get response: {data}")
+
+        inner = data.get("data") if "data" in data else None
+        if isinstance(inner, dict):
+            for key in ("raw_url", "proxy_url", "url", "download_url", "link"):
+                val = inner.get(key)
+                if isinstance(val, str) and val:
+                    return val
+        raise RuntimeError(f"OpenList /api/fs/get did not return download URL: {data}")
