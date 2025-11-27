@@ -38,6 +38,9 @@ class Video(Base):
     impressions: Mapped[list[Impression]] = relationship(
         "Impression", back_populates="video", cascade="all, delete-orphan"
     )
+    not_playable_reports: Mapped[list["NotPlayableReport"]] = relationship(
+        "NotPlayableReport", back_populates="video", cascade="all, delete-orphan"
+    )
 
 
 class Reaction(Base):
@@ -67,3 +70,19 @@ class Impression(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     video: Mapped[Video] = relationship("Video", back_populates="impressions")
+
+
+class NotPlayableReport(Base):
+    __tablename__ = "not_playable_reports"
+    __table_args__ = (
+        UniqueConstraint("video_id", "session_id", name="uix_npr_video_session"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[int] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    client_timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    video: Mapped[Video] = relationship("Video", back_populates="not_playable_reports")

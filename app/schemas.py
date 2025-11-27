@@ -46,5 +46,11 @@ class ImpressionRequest(BaseModel):
     completed: bool
 
 
+class NotPlayableReportRequest(BaseModel):
+    reason: Optional[str] = None
+    timestamp: Optional[datetime] = Field(None, description="Client-side ISO time")
+    sessionId: Optional[str] = None
+
+
 class OkResponse(BaseModel):
     ok: bool = True

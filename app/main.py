@@ -19,6 +19,7 @@ from app.openlist_client import OpenListClient, get_openlist_client
 from app.schemas import (
     ErrorResponse,
     ImpressionRequest,
+    NotPlayableReportRequest,
     OkResponse,
     PlaylistResponse,
     ReactionRequest,
@@ -206,6 +207,40 @@ def track_impression(
         completed=body.completed,
     )
     db.add(imp)
+    db.commit()
+    return OkResponse()
+
+
+@app.post(
+    "/api/v1/videos/{video_id}/not-playable",
+    response_model=OkResponse,
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    dependencies=[Depends(require_bearer)],
+)
+def report_not_playable(
+    body: NotPlayableReportRequest,
+    video_id: Annotated[str, Path()],
+    db: Session = Depends(get_db),
+):
+    video = ensure_video(db, video_id)
+
+    if body.sessionId:
+        existing = db.execute(
+            select(models.NotPlayableReport).where(
+                models.NotPlayableReport.video_id == video.id,
+                models.NotPlayableReport.session_id == body.sessionId,
+            )
+        ).scalars().first()
+        if existing:
+            error_response("ALREADY_REPORTED", "Not-playable already reported for this session", status.HTTP_409_CONFLICT)
+
+    record = models.NotPlayableReport(
+        video_id=video.id,
+        reason=body.reason,
+        client_timestamp=body.timestamp,
+        session_id=body.sessionId,
+    )
+    db.add(record)
     db.commit()
     return OkResponse()
 
