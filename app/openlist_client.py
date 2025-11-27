@@ -11,9 +11,12 @@ class OpenListClient:
     def __init__(self, settings: Settings):
         self.settings = settings
         headers = {}
+        auth = None
         if settings.token:
             headers["Authorization"] = f"Bearer {settings.token}"
-        self.client = httpx.Client(base_url=settings.api_base_url, headers=headers, timeout=15)
+        if settings.username and settings.user_password:
+            auth = (settings.username, settings.user_password)
+        self.client = httpx.Client(base_url=settings.api_base_url, headers=headers, auth=auth, timeout=15)
 
     def fetch_files(self) -> list[dict[str, Any]]:
         """Calls POST /api/fs/dirs to list entries under configured dir_path."""

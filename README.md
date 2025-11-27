@@ -24,6 +24,7 @@ Edit `app/config.py` (Settings dataclass) to point at your OpenList instance:
 - `dir_path` (default `/`) — directory to list
 - `password` — optional if protected
 - `token` — optional bearer token if API requires auth
+- `username` / `user_password` — optional basic auth if your OpenList is behind basic auth
 - `public_base_url` — optional base used to form file URLs; falls back to `api_base_url`
 
 ## API

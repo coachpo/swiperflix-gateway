@@ -136,8 +136,11 @@ async def stream_video(video_id: Annotated[str, Path()], db: Session = Depends(g
     headers = {}
     if settings.token:
         headers["Authorization"] = f"Bearer {settings.token}"
+    auth = None
+    if settings.username and settings.user_password:
+        auth = (settings.username, settings.user_password)
 
-    client = httpx.AsyncClient(follow_redirects=True, timeout=None)
+    client = httpx.AsyncClient(follow_redirects=True, timeout=None, auth=auth)
     try:
         upstream = await client.stream("GET", video.url, headers=headers)
     except httpx.HTTPError as exc:
