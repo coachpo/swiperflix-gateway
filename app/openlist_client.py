@@ -123,3 +123,42 @@ class OpenListClient:
             if norm:
                 records.append(norm)
         return records
+
+    def get_download_url(self, path: str) -> str:
+        """
+        Resolve a file's direct download URL using OpenList's file link endpoint.
+        Example: /@file/link/path/path1/file1.mp4 for file /path1/file1.mp4
+        """
+        norm_path = path.lstrip("/")
+        endpoint = f"/@file/link/path/{norm_path}"
+        params = {}
+        if self.settings.password:
+            params["password"] = self.settings.password
+
+        client = self._new_client()
+        resp = client.get(endpoint, params=params, follow_redirects=False)
+
+        if resp.is_redirect:
+            location = resp.headers.get("Location")
+            if location:
+                return location
+
+        try:
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"OpenList link response not JSON: {resp.text}") from exc
+
+        # OpenList often returns {code:int, data:<url|string|dict>}
+        if isinstance(data, dict):
+            inner = data.get("data") if "data" in data else None
+            if isinstance(inner, str) and inner:
+                return inner
+            if isinstance(inner, dict):
+                for key in ("raw_url", "url", "download_url", "link"):
+                    val = inner.get(key)
+                    if isinstance(val, str) and val:
+                        return val
+        if isinstance(data, str) and data:
+            return data
+
+        raise RuntimeError(f"OpenList link did not return download URL: {data}")

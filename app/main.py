@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Path, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -95,7 +96,7 @@ def get_playlist(
     mapped_items = [
         VideoItem(
             id=str(v.id),
-            url=v.source_url,
+            url=f"/api/v1/videos/{v.id}/stream",
             cover=v.cover,
             title=v.title,
             duration=v.duration,
@@ -112,6 +113,25 @@ def ensure_video(db: Session, video_id: str) -> Video:
     if not video:
         error_response("VIDEO_NOT_FOUND", f"Video id {video_id} not found", status.HTTP_404_NOT_FOUND)
     return video
+
+
+@app.get(
+    "/api/v1/videos/{video_id}/stream",
+    status_code=status.HTTP_302_FOUND,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+)
+def stream_video(
+    video_id: Annotated[str, Path()],
+    db: Session = Depends(get_db),
+):
+    video = ensure_video(db, video_id)
+    client = OpenListClient(get_settings())
+    try:
+        download_url = client.get_download_url(video.path)
+    except Exception as exc:  # noqa: BLE001
+        error_response("OPENLIST_LINK_ERROR", f"Failed to resolve download URL: {exc}", status.HTTP_502_BAD_GATEWAY)
+        raise exc  # unreachable
+    return RedirectResponse(download_url, status_code=status.HTTP_302_FOUND)
 
 
 @app.post(
