@@ -78,7 +78,7 @@ def on_startup():
     dependencies=[Depends(require_bearer)],
 )
 def get_playlist(
-    limit: int = Query(gt=0, le=50, default=20),
+    limit: int = Query(gt=0, le=50, default=5),
     db: Session = Depends(get_db),
 ):
     ensure_videos_loaded(db)
