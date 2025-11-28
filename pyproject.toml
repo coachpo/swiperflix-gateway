@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swiperflix-gateway"
+version = "0.1.0"
+description = "FastAPI backend implementing the playlist/reaction API."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Swiperflix" }
+]
+dependencies = [
+  "fastapi==0.121.3",
+  "uvicorn[standard]==0.38.0",
+  "SQLAlchemy==2.0.44",
+  "pydantic==2.12.3",
+  "aiosqlite==0.21.0",
+  "httpx==0.28.1",
+  "pydantic-settings==2.12.0"
+]
+
+[tool.setuptools]
+packages = ["app"]
