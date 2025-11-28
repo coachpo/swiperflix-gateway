@@ -6,10 +6,10 @@ from typing import Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-DATABASE_URL = "sqlite:///./swiperflix.db"
+from app.config import get_settings
 
 engine = create_engine(
-    DATABASE_URL,
+    get_settings().database_url,
     connect_args={"check_same_thread": False},
     future=True,
 )
@@ -49,9 +49,14 @@ def init_db() -> None:
 def _ensure_pick_count_column() -> None:
     """Lightweight, idempotent migration for adding pick_count to videos table."""
     with engine.begin() as conn:
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info('videos')").fetchall()}
+        cols = {
+            row[1]
+            for row in conn.exec_driver_sql("PRAGMA table_info('videos')").fetchall()
+        }
         if "pick_count" not in cols:
-            conn.exec_driver_sql("ALTER TABLE videos ADD COLUMN pick_count INTEGER NOT NULL DEFAULT 0")
+            conn.exec_driver_sql(
+                "ALTER TABLE videos ADD COLUMN pick_count INTEGER NOT NULL DEFAULT 0"
+            )
         conn.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_videos_pick_count ON videos (pick_count, id)"
         )

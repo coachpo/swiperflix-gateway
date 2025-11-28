@@ -47,10 +47,13 @@ AUTH_TOKEN = "this-is-the-key-for-local-dev"
 # Dependency
 def require_bearer(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
     if not credentials or credentials.scheme.lower() != "bearer":
-        error_response("UNAUTHORIZED", "Missing bearer token", status.HTTP_401_UNAUTHORIZED)
+        error_response(
+            "UNAUTHORIZED", "Missing bearer token", status.HTTP_401_UNAUTHORIZED
+        )
     if credentials.credentials != AUTH_TOKEN:
         error_response("UNAUTHORIZED", "Invalid token", status.HTTP_401_UNAUTHORIZED)
     return True
+
 
 def get_db() -> Session:
     db = SessionLocal()
@@ -113,7 +116,11 @@ def ensure_video(db: Session, video_id: str) -> Video:
     # video_id is now DB PK in API surface
     video = db.get(Video, int(video_id)) if video_id.isdigit() else None
     if not video:
-        error_response("VIDEO_NOT_FOUND", f"Video id {video_id} not found", status.HTTP_404_NOT_FOUND)
+        error_response(
+            "VIDEO_NOT_FOUND",
+            f"Video id {video_id} not found",
+            status.HTTP_404_NOT_FOUND,
+        )
     return video
 
 
@@ -142,7 +149,11 @@ def stream_video(
         try:
             download_url = client.get_download_url(video.path)
         except Exception as exc:  # noqa: BLE001
-            error_response("OPENLIST_LINK_ERROR", f"Failed to resolve download URL: {exc}", status.HTTP_502_BAD_GATEWAY)
+            error_response(
+                "OPENLIST_LINK_ERROR",
+                f"Failed to resolve download URL: {exc}",
+                status.HTTP_502_BAD_GATEWAY,
+            )
             raise exc  # unreachable
     return RedirectResponse(download_url, status_code=status.HTTP_302_FOUND)
 
@@ -175,7 +186,9 @@ def dislike_video(
     return handle_reaction(db, video_id, ReactionType.dislike, reaction)
 
 
-def handle_reaction(db: Session, video_id: str, rtype: ReactionType, reaction: ReactionRequest):
+def handle_reaction(
+    db: Session, video_id: str, rtype: ReactionType, reaction: ReactionRequest
+):
     video = ensure_video(db, video_id)
 
     query = select(models.Reaction).where(
@@ -187,7 +200,9 @@ def handle_reaction(db: Session, video_id: str, rtype: ReactionType, reaction: R
 
     existing = db.execute(query).scalars().first()
     if existing:
-        error_response("ALREADY_REACTED", "Reaction already recorded", status.HTTP_409_CONFLICT)
+        error_response(
+            "ALREADY_REACTED", "Reaction already recorded", status.HTTP_409_CONFLICT
+        )
 
     record = models.Reaction(
         video_id=video.id,
@@ -237,14 +252,22 @@ def report_not_playable(
     video = ensure_video(db, video_id)
 
     if body.sessionId:
-        existing = db.execute(
-            select(models.NotPlayableReport).where(
-                models.NotPlayableReport.video_id == video.id,
-                models.NotPlayableReport.session_id == body.sessionId,
+        existing = (
+            db.execute(
+                select(models.NotPlayableReport).where(
+                    models.NotPlayableReport.video_id == video.id,
+                    models.NotPlayableReport.session_id == body.sessionId,
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if existing:
-            error_response("ALREADY_REPORTED", "Not-playable already reported for this session", status.HTTP_409_CONFLICT)
+            error_response(
+                "ALREADY_REPORTED",
+                "Not-playable already reported for this session",
+                status.HTTP_409_CONFLICT,
+            )
 
     record = models.NotPlayableReport(
         video_id=video.id,
@@ -256,8 +279,6 @@ def report_not_playable(
     db.commit()
     return OkResponse()
 
-
- 
 
 def fetch_from_openlist(client: OpenListClient, all_pages: bool = False) -> list[dict]:
     entries = client.fetch_files(all_pages=all_pages)
@@ -272,7 +293,12 @@ def ensure_videos_loaded(db: Session) -> None:
     try:
         records = fetch_from_openlist(client, all_pages=True)
     except Exception as exc:  # noqa: BLE001
-        logger.error("Failed to fetch from OpenList dir=%s: %s", settings.dir_path, exc, exc_info=True)
+        logger.error(
+            "Failed to fetch from OpenList dir=%s: %s",
+            settings.dir_path,
+            exc,
+            exc_info=True,
+        )
         records = []
     videos = []
     for r in records:

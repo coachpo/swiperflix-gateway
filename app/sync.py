@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Sync videos from OpenList into local DB")
+    parser = argparse.ArgumentParser(
+        description="Sync videos from OpenList into local DB"
+    )
     parser.add_argument(
         "--dir",
         dest="dir_path",
@@ -30,10 +32,18 @@ def upsert_videos(records):
     updated = 0
     with SessionLocal() as db:
         for r in records:
-            video = db.execute(select(Video).where(Video.path == r["path"])).scalar_one_or_none()
+            video = db.execute(
+                select(Video).where(Video.path == r["path"])
+            ).scalar_one_or_none()
             if video:
                 changed = False
-                for field in ["source_url", "title", "cover", "duration", "orientation"]:
+                for field in [
+                    "source_url",
+                    "title",
+                    "cover",
+                    "duration",
+                    "orientation",
+                ]:
                     new_val = r.get(field)
                     if getattr(video, field) != new_val:
                         setattr(video, field, new_val)

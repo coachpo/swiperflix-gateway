@@ -18,13 +18,24 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    api_base_url: str = Field(default="http://localhost:5244", description="OpenList API base URL")
+    api_base_url: str = Field(
+        default="http://localhost:5244", description="OpenList API base URL"
+    )
     dir_path: str = Field(default="/", description="Directory to list")
     password: str | None = Field(default=None, description="Directory password, if set")
-    token: str | None = Field(default=None, description="OpenList token (raw, no Bearer)")
+    token: str | None = Field(
+        default=None, description="OpenList token (raw, no Bearer)"
+    )
     username: str | None = Field(default=None, description="Basic auth username")
     user_password: str | None = Field(default=None, description="Basic auth password")
-    public_base_url: str | None = Field(default=None, description="Base URL to build file links")
+    public_base_url: str | None = Field(
+        default=None, description="Base URL to build file links"
+    )
+    database_url: str = Field(
+        default="sqlite:///./swiperflix.db",
+        env="DATABASE_URL",
+        description="SQLAlchemy connection URL",
+    )
 
     def build_file_url(self, path: str) -> str:
         base = (self.public_base_url or self.api_base_url).rstrip("/")

@@ -35,7 +35,11 @@ class OpenListClient:
         if self.settings.token:
             # OpenList expects raw token without Bearer prefix
             headers["Authorization"] = self.settings.token
-        if self.settings.username and self.settings.user_password and not self.settings.token:
+        if (
+            self.settings.username
+            and self.settings.user_password
+            and not self.settings.token
+        ):
             auth = (self.settings.username, self.settings.user_password)
         return headers, auth
 
@@ -81,23 +85,41 @@ class OpenListClient:
             except httpx.TimeoutException as exc:
                 raise RuntimeError("OpenList /api/fs/list timed out") from exc
             except httpx.HTTPError as exc:
-                raise RuntimeError(f"OpenList /api/fs/list request failed: {exc}") from exc
+                raise RuntimeError(
+                    f"OpenList /api/fs/list request failed: {exc}"
+                ) from exc
 
-            if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+            if (
+                resp.status_code == 401
+                and auth_retry
+                and (self.settings.username and self.settings.user_password)
+            ):
                 if self.settings.token:
-                    logger.warning("OpenList token rejected; token=%s", self.settings.token)
+                    logger.warning(
+                        "OpenList token rejected; token=%s", self.settings.token
+                    )
                 self.authenticate()
                 return fetch_page(page, auth_retry=False)
             if resp.status_code >= 400:
-                raise RuntimeError(f"OpenList /api/fs/list HTTP {resp.status_code}: {resp.text}")
+                raise RuntimeError(
+                    f"OpenList /api/fs/list HTTP {resp.status_code}: {resp.text}"
+                )
             try:
                 data = resp.json()
             except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"OpenList /api/fs/list response not JSON: {resp.text}") from exc
+                raise RuntimeError(
+                    f"OpenList /api/fs/list response not JSON: {resp.text}"
+                ) from exc
             if data.get("code") != 200:
-                if data.get("code") == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+                if (
+                    data.get("code") == 401
+                    and auth_retry
+                    and (self.settings.username and self.settings.user_password)
+                ):
                     if self.settings.token:
-                        logger.warning("OpenList token rejected; token=%s", self.settings.token)
+                        logger.warning(
+                            "OpenList token rejected; token=%s", self.settings.token
+                        )
                     self.authenticate()
                     return fetch_page(page, auth_retry=False)
                 raise RuntimeError(f"OpenList error: {data}")
@@ -162,7 +184,9 @@ class OpenListClient:
             "created_at": created_at,
         }
 
-    def build_video_records(self, entries: List[dict[str, Any] | str]) -> list[dict[str, Any]]:
+    def build_video_records(
+        self, entries: List[dict[str, Any] | str]
+    ) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         for entry in entries:
             norm = self.normalize_entry(entry)
@@ -186,21 +210,33 @@ class OpenListClient:
         def call_get(auth_retry: bool = True):
             client = self._new_client()
             resp = client.post("/api/fs/get", json=payload)
-            if resp.status_code == 401 and auth_retry and (self.settings.username and self.settings.user_password):
+            if (
+                resp.status_code == 401
+                and auth_retry
+                and (self.settings.username and self.settings.user_password)
+            ):
                 self.authenticate()
                 return call_get(auth_retry=False)
             if resp.status_code >= 400:
-                raise RuntimeError(f"OpenList /api/fs/get HTTP {resp.status_code}: {resp.text}")
+                raise RuntimeError(
+                    f"OpenList /api/fs/get HTTP {resp.status_code}: {resp.text}"
+                )
             return resp
 
         resp = call_get()
         try:
             data = resp.json()
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"OpenList /api/fs/get response not JSON: {resp.text}") from exc
+            raise RuntimeError(
+                f"OpenList /api/fs/get response not JSON: {resp.text}"
+            ) from exc
 
         # Some deployments return HTTP 200 with {code:401,...}
-        if isinstance(data, dict) and data.get("code") == 401 and (self.settings.username and self.settings.user_password):
+        if (
+            isinstance(data, dict)
+            and data.get("code") == 401
+            and (self.settings.username and self.settings.user_password)
+        ):
             self.authenticate()
             resp = call_get(auth_retry=False)
             data = resp.json()
