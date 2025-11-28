@@ -70,7 +70,7 @@ class OpenListClient:
             "path": self.settings.dir_path,
             "password": self.settings.password or "",
             "refresh": False,
-            "per_page": 50,
+            "per_page": 100,
         }
 
         def fetch_page(page: int, auth_retry: bool = True) -> dict[str, Any]:
