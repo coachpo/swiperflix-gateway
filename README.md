@@ -9,18 +9,18 @@ FastAPI backend implementing the playlist/reaction API defined in `api.md`, back
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # on Windows use .venv\\Scripts\\activate
-pip install -r requirements.txt
+pip install .
 ```
 
 ## Run
 ```bash
-pip install .
 uvicorn app.main:app --reload
 ```
 The SQLite file `swiperflix.db` is created in the project root. On startup the app fetches a directory listing from OpenList and stores entries as videos (falls back to built-in samples if the call fails). If the file already exists, startup will automatically add a `pick_count` column and index on `videos` used for playlist prioritization; you can delete the file to rebuild from scratch if preferred.
 
 ### Quick start script
 Run `./entrypoint.sh` to populate data then start the server (`python -m app.sync` then `uvicorn`).
+For Docker, pass secrets (password/token) at runtime via `--env-file example.env` or individual `-e` flags; they are not baked into the image.
 
 ### OpenList config
 Edit `app/config.py` (Settings dataclass) to point at your OpenList instance:
