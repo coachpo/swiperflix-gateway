@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from urllib.parse import urlparse
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Path, Query, status
@@ -116,6 +117,14 @@ def ensure_video(db: Session, video_id: str) -> Video:
     return video
 
 
+def _is_absolute_url(value: str | None) -> bool:
+    """Return True if value looks like an absolute HTTP/HTTPS URL."""
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 @app.get(
     "/api/v1/videos/{video_id}/stream",
     status_code=status.HTTP_302_FOUND,
@@ -126,12 +135,15 @@ def stream_video(
     db: Session = Depends(get_db),
 ):
     video = ensure_video(db, video_id)
-    client = get_openlist_client()
-    try:
-        download_url = client.get_download_url(video.path)
-    except Exception as exc:  # noqa: BLE001
-        error_response("OPENLIST_LINK_ERROR", f"Failed to resolve download URL: {exc}", status.HTTP_502_BAD_GATEWAY)
-        raise exc  # unreachable
+    if _is_absolute_url(video.source_url):
+        download_url = video.source_url
+    else:
+        client = get_openlist_client()
+        try:
+            download_url = client.get_download_url(video.path)
+        except Exception as exc:  # noqa: BLE001
+            error_response("OPENLIST_LINK_ERROR", f"Failed to resolve download URL: {exc}", status.HTTP_502_BAD_GATEWAY)
+            raise exc  # unreachable
     return RedirectResponse(download_url, status_code=status.HTTP_302_FOUND)
 
 
