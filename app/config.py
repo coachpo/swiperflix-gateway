@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     username: str | None = Field(default=None, description="Basic auth username")
     user_password: str | None = Field(default=None, description="Basic auth password")
     public_base_url: str | None = Field(default=None, description="Base URL to build file links")
-    gateway_base_url: str | None = Field(default=None, description="Optional proxy base for responses")
 
     def build_file_url(self, path: str) -> str:
         base = (self.public_base_url or self.api_base_url).rstrip("/")
